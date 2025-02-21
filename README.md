@@ -18,11 +18,13 @@ source venv/bin/activate
 ```
 
 Caso não possua um arquivo requirements.txt, instale manualmente:
+
 ```bash
 pip install requests colorama markdown beautifulsoup4
 ```
 requirements.txt que inclui todos os pacotes necessários para executar o projeto:
 ```
+
 # Requisitos para Nina Recon Tool
 
 requests>=2.20.0
@@ -33,10 +35,7 @@ tldextract>=3.1.0
 
 # Para compatibilidade com Python 2.7, se necessário (opcional)
 futures>=3.0.5
-
 ```
-
----
 
 Nota:
 Para usuários de Python 2.7, instale o pacote futures para compatibilidade com concurrent.futures.
@@ -55,6 +54,11 @@ Após a execução, o relatório HTML é gerado com um template Bootstrap intera
 um servidor HTTP local na porta 4366 é iniciado, abrindo automaticamente o relatório no seu navegador.
 
 ```
+
+
+  <img src="https://github.com/BrotherOfJhonny/nina/blob/main/src/report_nina.jpg" alt="Relatorio" width="400">
+
+
 
 ```
   
@@ -79,6 +83,9 @@ um servidor HTTP local na porta 4366 é iniciado, abrindo automaticamente o rela
 | **Extras**           | Directory Enumeration                   | Enumera diretórios comuns.                                                                                |
 | **Extras**           | Security Headers Scan                   | Verifica cabeçalhos de segurança HTTP.                                                                    |
 |----------------------|-----------------------------------------|-----------------------------------------------------------------------------------------------------------|
+
+
+
 
 # 💐💐💐 Este é um tributo para amiga do meu amigo 💐💐💐
 
