@@ -17,24 +17,30 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-Caso não possua um arquivo requirements.txt, instale manualmente:
-
-```bash
-pip install requests colorama markdown beautifulsoup4
-```
 requirements.txt que inclui todos os pacotes necessários para executar o projeto:
 ```
 
 # Requisitos para Nina Recon Tool
 
-requests>=2.20.0
-colorama>=0.4.0
-markdown>=3.0
-beautifulsoup4>=4.6.0
+requests>=2.25.0
+colorama>=0.4.4
+markdown>=3.3.4
+beautifulsoup4>=4.9.3
 tldextract>=3.1.0
+PyYAML>=5.4.1
+wget>=3.2
+dnspython>=2.1.0
+PrettyTable>=2.4.0
+jsbeautifier>=1.14.0
+python-whois>=0.7.3
 
-# Para compatibilidade com Python 2.7, se necessário (opcional)
-futures>=3.0.5
+# Para compatibilidade com Python 2.7 (caso necessário)
+futures>=3.0.5; python_version < "3.0"
+```
+
+Para Instalar execute o comando:
+```bash
+pip install -r requirements.txt
 ```
 
 Nota:
