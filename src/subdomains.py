@@ -1,135 +1,55 @@
+import dns.resolver
+import logging
 import requests
-import json
 import re
-import sys
-import socket
-from time import sleep
-from prettytable import PrettyTable
-from src.colors import YELLOW, GREEN, RED, BLUE, RESET
+import tldextract
+from bs4 import BeautifulSoup as bs
 
-import urllib3
-import warnings
-urllib3.disable_warnings()
-warnings.simplefilter("ignore")
-
-# Subdomain discovery function
 def subDomain(domain, store, reportPath):
-
-    print(f"\n{BLUE}[*] Discovering subdomains from {domain}...\n")
-    sleep(0.1)
-    subDoms = []
-
-    # Consulting crt.sh
+    """
+    Enumera subdomínios utilizando o serviço crt.sh.
+    Retorna uma lista de subdomínios encontrados.
+    """
+    url = "https://crt.sh/?q=%25." + domain + "&output=json"
+    logging.info("Consultando crt.sh para subdomínios de %s", domain)
     try:
-        r = requests.get(f"https://crt.sh/?q={domain}&output=json", timeout=20)
-        file = json.dumps(json.loads(r.text), indent=4)
-        sub_domains = sorted(set(re.findall(r'"common_name": "(.*?)"', file)))
-        for sub in sub_domains:
-            if sub.endswith(domain) and sub not in subDoms:
-                subDoms.append(sub)
-    except KeyboardInterrupt:
-        sys.exit(f"[{YELLOW}!{RESET}] Interrupt handler received, exiting...\n")
-    except:
-        pass
+        response = requests.get(url, timeout=10)
+        data = response.json()
+    except Exception as e:
+        logging.error("Erro ao consultar crt.sh: %s", e)
+        data = []
+    subdomains = set()
+    for entry in data:
+        names = entry.get("name_value", "")
+        # O campo pode conter vários subdomínios separados por nova linha
+        for sub in names.split("\n"):
+            if sub.endswith(domain):
+                subdomains.add(sub.strip())
+    return list(subdomains)
 
-    # Consulting Hackertarget
-    try:
-        r = requests.get(f"https://api.hackertarget.com/hostsearch/?q={domain}", timeout=20)
-        sub_domains = re.findall(f'(.*?),', r.text)
-        for sub in sub_domains:
-            if sub.endswith(domain) and sub not in subDoms:
-                subDoms.append(sub)
-    except KeyboardInterrupt:
-        sys.exit(f"[{YELLOW}!{RESET}] Interrupt handler received, exiting...\n")
-    except:
-        pass
+COMMON_SUBDOMAINS = [
+    "www", "mail", "ftp", "webmail", "ns1", "ns2", "blog", "dev", "test", "api", "m", "mobile",
+    "vpn", "admin", "portal", "secure", "static", "cdn", "docs", "beta", "intranet", "support"
+]
 
-    # Consulting RapidDNS
-    try:
-        r = requests.get(f"https://rapiddns.io/subdomain/{domain}", timeout=20)
-        sub_domains = re.findall(r'target="_blank".*?">(.*?)</a>', r.text)
-        for sub in sub_domains:
-            if sub.endswith(domain) and sub not in subDoms:
-                subDoms.append(sub)
-    except KeyboardInterrupt:
-        sys.exit(f"[{YELLOW}!{RESET}] Interrupt handler received, exiting...\n")
-    except:
-        pass
+def brute_force_subdomains(domain, common_subdomains=COMMON_SUBDOMAINS, timeout=3):
+    """
+    Realiza enumeração de subdomínios utilizando uma lista de subdomínios comuns e consultas DNS.
+    Retorna uma lista de subdomínios que resolvem com sucesso.
+    """
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = timeout
+    resolver.lifetime = timeout
+    found_subdomains = set()
 
-    # Consulting AlienVault
-    try:
-        r = requests.get(f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns", timeout=20)
-        sub_domains = sorted(set(re.findall(r'"hostname": "(.*?)"', r.text)))
-        for sub in sub_domains:
-            if sub.endswith(domain) and sub not in subDoms:
-                subDoms.append(sub)
-    except KeyboardInterrupt:
-        sys.exit(f"[{YELLOW}!{RESET}] Interrupt handler received, exiting...\n")
-    except:
-        pass
+    for sub in common_subdomains:
+        full_domain = "{}.{}".format(sub, domain)
+        try:
+            answers = resolver.resolve(full_domain, "A")
+            if answers:
+                logging.info("Subdomínio encontrado: %s", full_domain)
+                found_subdomains.add(full_domain)
+        except Exception:
+            continue
 
-    # Consulting URLScan
-    try:
-        r = requests.get(f"https://urlscan.io/api/v1/search/?q={domain}", timeout=20)
-        sub_domains = sorted(set(re.findall(r'https://(.*?).' + domain, r.text)))
-        for sub in sub_domains:
-            if sub.endswith(domain) and sub not in subDoms:
-                subDoms.append(sub)
-    except KeyboardInterrupt:
-        sys.exit(f"[{YELLOW}!{RESET}] Interrupt handler received, exiting...\n")
-    except:
-        pass
-
-    # Consulting Riddler
-    try:
-        r = requests.get(f"https://riddler.io/search/exportcsv?q=pld:{domain}", timeout=20)
-        sub_domains = re.findall(r'\[.*?\]",.*?,(.*?),\[', r.text)
-        for sub in sub_domains:
-            if sub.endswith(domain) and sub not in subDoms:
-                subDoms.append(sub)
-    except KeyboardInterrupt:
-        sys.exit(f"[{YELLOW}!{RESET}] Interrupt handler received, exiting...\n")
-    except:
-        pass
-
-    # Consulting ThreatMiner
-    try:
-        r = requests.get(f"https://api.threatminer.org/v2/domain.php?q={domain}&rt=5", timeout=20)
-        file = json.loads(r.ontent)
-        sub_domains = file['results']
-        for sub in sub_domains:
-            if sub.endswith(domain) and sub not in subDoms:
-                subDoms.append(sub)
-    except KeyboardInterrupt:
-        sys.exit(f"[{YELLOW}!{RESET}] Interrupt handler received, exiting...\n")
-    except:
-        pass
-
-
-    # open file to write
-    if subDoms:
-        if store:
-            f = open(reportPath, "a")
-            f.write(f"\n\n## Subdomains from {domain}\n\n")
-            f.write("|" + " SUBDOMAINS    \t\t\t\t| IP \t\t\t|\n" + "|" + "-"*47 + "|" + "-"*23 + "|\n")
-
-        # interact through list and check the lenght
-        table = PrettyTable([f"SUBDOMAINS", f"IP"])
-        for s in subDoms:
-            try:
-                ip = socket.gethostbyname(s)
-            except:
-                ip = "Not found!"
-            if store:
-                f.write(f"| {s} | {ip} |\n")
-            table.add_row([s, ip])
-            table.align["SUBDOMAINS"] = "l"
-
-        print(table)
-        print(f"\n{BLUE}Total discovered sudomains: {GREEN}" + str(len(subDoms)))
-
-        if store:
-            f.write("\n\n**Total discovered sudomains: " + str(len(subDoms)) + "**")
-            f.close()
-
-        return subDoms
+    return list(found_subdomains)
