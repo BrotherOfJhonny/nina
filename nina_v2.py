@@ -7,9 +7,10 @@ Funcionalidades incluem:
   - Portscan interno (com SSL aplicado somente em portas comuns)
   - Opção para executar portscan via Nmap (--nmap-scan)
   - Teste de CORS e detecção de WAF utilizando referências do arquivo JSON
-  - Enumeração de diretórios comuns e verificação dos cabeçalhos de segurança
+  - Enumeração de subdomínios (usando crt.sh e brute force) e verificação dos cabeçalhos de segurança
   - Geração de relatório em Markdown e conversão para HTML com Bootstrap
   - Início de um servidor HTTP local na porta 4366 e abertura automática do relatório no navegador
+  - Aviso ao usuário se alguma etapa demorar mais que 60 segundos
 """
 
 import argparse
@@ -40,7 +41,7 @@ from src.detect_waf import detect_waf
 from src.find_repos import find_repos
 from src.subdomain_takeover import subtake
 from src.zone_transfer import zone_transfer
-from src.subdomains import subDomain
+from src.subdomains import subDomain, brute_force_subdomains
 from src.dns_information import dns_information, whois_lookup
 from src.find_emails import find_emails
 from src.ssl_information import ssl_information
@@ -78,7 +79,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("-b", "--backups", help="Procurar por arquivos de backup comuns", action='store_true')
     parser.add_argument("-w", "--waf", help="Detectar WAF (Web Application Firewall)", action='store_true')
     parser.add_argument("-r", "--repos", help="Descobrir repositórios válidos do domínio", action='store_true')
-    parser.add_argument("--email", help="Buscar emails (padrão: máximo 50)", nargs='?', const=50, type=int)
+    parser.add_argument("--email", help="Buscar emails (padrão: máximo 50)", nargs='?', const=50, default=50, type=int)
     parser.add_argument("--threads", help="Número de threads (padrão: 5)", type=int, default=5)
     parser.add_argument("-V", "--version", help="Exibir a versão da ferramenta", action='store_true')
     return parser.parse_args()
@@ -98,7 +99,7 @@ def generate_html_report(report_md: pathlib.Path) -> pathlib.Path:
     md_content = report_md.read_text(encoding="utf-8")
     html_body = markdown.markdown(md_content, extensions=['extra', 'tables'])
     
-    # ASCII art do cachorro, fonte reduzida e line-height menor
+    # ASCII art do cachorro (desenho atualizado), com fonte reduzida e line-height menor
     ascii_art = r"""
                                                
                                         ##        
@@ -126,7 +127,7 @@ def generate_html_report(report_md: pathlib.Path) -> pathlib.Path:
   ####    ####              ############          
     ##                                            
 """
-
+    
     html_template = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -142,9 +143,9 @@ def generate_html_report(report_md: pathlib.Path) -> pathlib.Path:
       background-color: #f8f9fa;
       padding: 15px;
       border-radius: 5px;
-      font-size: 8px;    /* Fonte menor para reduzir o tamanho do desenho */
-      line-height: 1;    /* Reduzindo o espaçamento entre linhas */
-      overflow-x: auto;  /* Rolagem horizontal caso necessário */
+      font-size: 8px;    /* Fonte menor para reduzir o desenho */
+      line-height: 1;    /* Espaçamento reduzido entre linhas */
+      overflow-x: auto;
     }}
     h1, h2, h3, h4, h5, h6, p {{
       margin-bottom: 1rem;
@@ -288,6 +289,13 @@ def write_vulnerabilities(vulnerabilities: list, store: bool, report_dir: pathli
                 f.write("</tbody></table>")
         logging.info(f"Relatório salvo em: {report_dir / f'{domain}.report.md'}")
 
+def print_long_operation_notice(event, interval=60):
+    """
+    Função auxiliar que, enquanto o evento não for sinalizado, imprime uma mensagem a cada 'interval' segundos.
+    """
+    while not event.wait(interval):
+        print("[INFO] Ainda realizando consultas... Por favor, aguarde.")
+
 def main() -> None:
     print_banner()
     args = parse_arguments()
@@ -317,7 +325,6 @@ def main() -> None:
         report_file = report_dir / f"{domain}.report.md"
         if report_file.exists():
             report_file.unlink()
-        # Início do relatório em Markdown
         report_file.write_text(f"# RELATÓRIO NINA RECON TOOL PARA {domain.upper()}<br><br>\n", encoding="utf-8")
 
     THREADS = args.threads
@@ -329,9 +336,14 @@ def main() -> None:
 
     try:
         if args.all:
-            # Caso "all" seja escolhido, executa todos os módulos
             if args.subdomains:
+                # Enumeração tradicional via crt.sh
                 subs = subDomain(domain, store, str(report_file))
+                # Enumeração por força bruta
+                brute_subs = brute_force_subdomains(domain)
+                for s in brute_subs:
+                    if s not in subs:
+                        subs.append(s)
             whois_lookup(domain, store, str(report_file), vulnerabilities)
             dns_information(domain, store, str(report_dir), str(report_file), vulnerabilities)
             spoof(domain, vulnerabilities)
@@ -346,18 +358,28 @@ def main() -> None:
             js_links(domain, store, str(report_file), subs, THREADS)
             cors(domain, store, str(report_file), subs, src_path, vulnerabilities, THREADS)
             dorks(domain, store, str(report_file))
+            
+            # Pesquisa por emails
             find_emails(domain, store, str(report_file), MAX_EMAILS, THREADS)
+            
+            # Pesquisa por arquivos de backup com aviso se demorar mais de 60 segundos
+            notice_event = threading.Event()
+            notice_thread = threading.Thread(target=print_long_operation_notice, args=(notice_event, 60))
+            notice_thread.daemon = True
+            notice_thread.start()
             search_backups(domain, store, str(report_file), subs, THREADS)
+            notice_event.set()
+            
             tech(domain, store, str(report_file), subs, THREADS)
             find_repos(domain, store, str(report_file), subs)
-            detect_waf(domain, store, str(report_file), subs, str(src_path), THREADS)
+            detect_waf(domain, store, str(report_file), subs, src_path, THREADS)
             directory_enumeration(domain, store, report_file)
             header_security_scan(domain, store, report_file)
             write_vulnerabilities(vulnerabilities, store, report_dir, domain, report_file)
             
-            # Converte o relatório MD para HTML com Bootstrap
+            # Gera relatório HTML a partir do Markdown com Bootstrap
             report_html = generate_html_report(report_file)
-            # Inicia servidor HTTP local em uma thread separada
+            # Inicia servidor HTTP local em uma thread separada e abre o relatório HTML
             server_thread = threading.Thread(target=start_http_server, args=(report_dir, 4366), daemon=True)
             server_thread.start()
             time.sleep(2)
@@ -365,11 +387,14 @@ def main() -> None:
             server_thread.join()
             sys.exit(0)
 
-        # Execução individual das opções selecionadas
         if args.dns:
             dns_information(domain, store, str(report_dir), str(report_file), vulnerabilities)
         if args.subdomains:
             subs = subDomain(domain, store, str(report_file))
+            brute_subs = brute_force_subdomains(domain)
+            for s in brute_subs:
+                if s not in subs:
+                    subs.append(s)
         if args.subtake:
             if not subs:
                 subs = subDomain(domain, store, str(report_file))
@@ -379,11 +404,16 @@ def main() -> None:
         if args.repos:
             find_repos(domain, store, str(report_file), subs)
         if args.waf:
-            detect_waf(domain, store, str(report_file), subs, str(src_path), THREADS)
+            detect_waf(domain, store, str(report_file), subs, src_path, THREADS)
         if args.whois:
             whois_lookup(domain, store, str(report_file), vulnerabilities)
         if args.backups:
+            notice_event = threading.Event()
+            notice_thread = threading.Thread(target=print_long_operation_notice, args=(notice_event, 60))
+            notice_thread.daemon = True
+            notice_thread.start()
             search_backups(domain, store, str(report_file), subs, THREADS)
+            notice_event.set()
         if args.tech:
             tech(domain, store, str(report_file), subs, THREADS)
         if args.cors:
