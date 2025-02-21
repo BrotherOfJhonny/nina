@@ -56,6 +56,8 @@ sudo python3 nina_v2.py -d dominio.com.br -A -o
 -d: Domínio alvo.
 -A: Executa todas as funções de reconhecimento.
 -o: Salva o relatório em um diretório (o relatório é gerado inicialmente em Markdown e convertido para HTML).
+-s: O script chama subDomain e, em seguida, chama brute_force_subdomains.
+
 Após a execução, o relatório HTML é gerado com um template Bootstrap interativo
 um servidor HTTP local na porta 4366 é iniciado, abrindo automaticamente o relatório no seu navegador.
 
